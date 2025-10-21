@@ -22,11 +22,18 @@ class vehicleController():
     def __init__(self, node=None):
         self.node = Node('vehicle_controller')
         self.own_node = True
-            
+
         self.controlPub = self.node.create_publisher(AckermannDrive, "/ackermann_cmd", 1)
         self.prev_vel = 0
-        self.L = 1.75 
-        self.log_acceleration = False
+        self.L = 1.75
+        self.log_acceleration = True  # Enable logging for Problem 5
+
+        # Data logging for plots
+        self.time_data = []
+        self.acceleration_data = []
+        self.trajectory_x = []
+        self.trajectory_y = []
+        self.start_time = time.time()
 
        
 
@@ -74,45 +81,87 @@ class vehicleController():
     def longititudal_controller(self, curr_x, curr_y, curr_vel, curr_yaw, future_unreached_waypoints):
 
         ####################### TODO: Your TASK 2 code starts Here #######################
-        # Velocity control based on upcoming path curvature
+        # Optimized velocity control with look-ahead straight detection
 
-        # Define velocity limits
-        max_velocity = 12.0  # Speed for straight sections (m/s)
-        min_velocity = 6.0   # Speed for sharp curves (m/s)
+        # Pure logic - no artificial limits
+        straight_speed = 100.0     # Speed for straight sections
+        curve_speed = 30.0         # Speed for curves
+        straight_threshold = math.radians(5)  # Heading change threshold
+        decel_rate = 100.0  # Desired deceleration rate (m/s²)
 
-        # Need at least 3 waypoints to estimate curvature
+        # Calculate braking distance: d = (v_straight² - v_curve²) / (2 × a)
+        braking_anticipation = (straight_speed**2 - curve_speed**2) / (2 * decel_rate)
+
         if len(future_unreached_waypoints) < 3:
-            target_velocity = min_velocity
-            return target_velocity
-
-        # Calculate heading change between consecutive waypoint segments
-        # This indicates how curved the upcoming path is
-        v1_x = future_unreached_waypoints[1][0] - future_unreached_waypoints[0][0]
-        v1_y = future_unreached_waypoints[1][1] - future_unreached_waypoints[0][1]
-
-        v2_x = future_unreached_waypoints[2][0] - future_unreached_waypoints[1][0]
-        v2_y = future_unreached_waypoints[2][1] - future_unreached_waypoints[1][1]
-
-        angle1 = math.atan2(v1_y, v1_x)
-        angle2 = math.atan2(v2_y, v2_x)
-
-        # Compute absolute heading change as curvature indicator
-        heading_change = abs(angle2 - angle1)
-        if heading_change > math.pi:
-            heading_change = 2 * math.pi - heading_change
-
-        # Velocity adjustment: straight path → max speed, curved path → reduced speed
-        curvature_threshold = math.radians(15)  # Threshold for considering path as curved
-
-        if heading_change < curvature_threshold:
-            target_velocity = max_velocity
+            target_velocity = curve_speed
         else:
-            # Proportional reduction: sharper curves require lower speeds
-            velocity_reduction = (heading_change / math.pi) * (max_velocity - min_velocity)
-            target_velocity = max(min_velocity, max_velocity - velocity_reduction)
+            # 1. Scan ahead to detect straight sections and upcoming curves
+            straight_distance = 0.0
+            curve_detected = False
+
+            # Look ahead through waypoints
+            for i in range(min(len(future_unreached_waypoints) - 2, 30)):  # Look ahead up to 30 waypoints
+                # Calculate heading change at this waypoint
+                v1_x = future_unreached_waypoints[i+1][0] - future_unreached_waypoints[i][0]
+                v1_y = future_unreached_waypoints[i+1][1] - future_unreached_waypoints[i][1]
+                v2_x = future_unreached_waypoints[i+2][0] - future_unreached_waypoints[i+1][0]
+                v2_y = future_unreached_waypoints[i+2][1] - future_unreached_waypoints[i+1][1]
+
+                angle1 = math.atan2(v1_y, v1_x)
+                angle2 = math.atan2(v2_y, v2_x)
+                heading_change = abs(angle2 - angle1)
+                if heading_change > math.pi:
+                    heading_change = 2 * math.pi - heading_change
+
+                # Calculate segment distance
+                segment_dist = math.sqrt(v1_x**2 + v1_y**2)
+
+                if heading_change < straight_threshold:
+                    # Still in straight section
+                    if not curve_detected:
+                        straight_distance += segment_dist
+                else:
+                    # Curve detected
+                    curve_detected = True
+                    break
+
+            # 2. Calculate current position's curvature for immediate speed adjustment
+            v1_x = future_unreached_waypoints[1][0] - future_unreached_waypoints[0][0]
+            v1_y = future_unreached_waypoints[1][1] - future_unreached_waypoints[0][1]
+            v2_x = future_unreached_waypoints[2][0] - future_unreached_waypoints[1][0]
+            v2_y = future_unreached_waypoints[2][1] - future_unreached_waypoints[1][1]
+
+            angle1 = math.atan2(v1_y, v1_x)
+            angle2 = math.atan2(v2_y, v2_x)
+            current_heading_change = abs(angle2 - angle1)
+            if current_heading_change > math.pi:
+                current_heading_change = 2 * math.pi - current_heading_change
+
+            # 3. Simple decision: straight = fast, curve = slow
+            if current_heading_change < straight_threshold:
+                # Currently in straight
+                if curve_detected and straight_distance < braking_anticipation:
+                    # Curve approaching - slow down
+                    target_velocity = curve_speed
+                else:
+                    # Clear straight - full speed
+                    target_velocity = straight_speed
+            else:
+                # Currently in curve - slow speed
+                target_velocity = curve_speed
+
+        # 4. Asymmetric smoothing: gradual acceleration, quick braking
+        if target_velocity > curr_vel:
+            # Accelerating - use heavy smoothing to prevent flipping
+            alpha = 0.01  # Very gradual acceleration
+        else:
+            # Braking - use lighter smoothing for responsive slowing
+            alpha = 1  # Faster braking response
+
+        smoothed_velocity = alpha * target_velocity + (1 - alpha) * curr_vel
 
         ####################### TODO: Your TASK 2 code ends Here #######################
-        return target_velocity
+        return smoothed_velocity
 
         
         
@@ -226,8 +275,14 @@ class vehicleController():
 
         curr_x, curr_y, curr_vel, curr_yaw = self.extract_vehicle_info(currentPose)
 
+        # Log data for plotting
         if self.log_acceleration:
             acceleration = (curr_vel - self.prev_vel) * 100  # Since we are running at 100Hz
+            current_time = time.time() - self.start_time
+            self.time_data.append(current_time)
+            self.acceleration_data.append(acceleration)
+            self.trajectory_x.append(curr_x)
+            self.trajectory_y.append(curr_y)
 
         target_velocity = self.longititudal_controller(curr_x, curr_y, curr_vel, curr_yaw, future_unreached_waypoints)
         target_steering = self.pure_pursuit_lateral_controller(curr_x, curr_y, curr_yaw, target_point, future_unreached_waypoints)
@@ -237,7 +292,7 @@ class vehicleController():
         newAckermannCmd.steering_angle = float(target_steering)
 
         self.controlPub.publish(newAckermannCmd)
-        
+
         # Store current velocity for next iteration
         self.prev_vel = curr_vel
 
@@ -249,8 +304,41 @@ class vehicleController():
             newAckermannCmd.steering_angle = 0.0
             self.controlPub.publish(newAckermannCmd)
             print("Controller: Stop command sent")
+
+            # Save logged data when stopping
+            if self.log_acceleration:
+                self.save_data()
         except Exception as e:
             print(f"Controller: Error sending stop command: {e}")
+
+    def save_data(self):
+        """Save logged data to files for plotting"""
+        import csv
+        import os
+
+        # Create data directory if it doesn't exist
+        data_dir = os.path.expanduser("~/mp2_data")
+        os.makedirs(data_dir, exist_ok=True)
+
+        # Save acceleration data
+        accel_file = os.path.join(data_dir, "acceleration_data.csv")
+        with open(accel_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['time', 'acceleration'])
+            for t, a in zip(self.time_data, self.acceleration_data):
+                writer.writerow([t, a])
+
+        # Save trajectory data
+        traj_file = os.path.join(data_dir, "trajectory_data.csv")
+        with open(traj_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['x', 'y'])
+            for x, y in zip(self.trajectory_x, self.trajectory_y):
+                writer.writerow([x, y])
+
+        print(f"Data saved to {data_dir}")
+        print(f"  - {accel_file}")
+        print(f"  - {traj_file}")
         
     def destroy(self):
         if self.own_node:

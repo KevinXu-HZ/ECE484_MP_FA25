@@ -1,0 +1,60 @@
+donaldshen27@donaldshen27-Standard-PC-Q35-ICH9-2009:/mnt/ece484$ python3 ./src/mp2/plot_acceleration.py 
+Loading acceleration data...
+
+============================================================
+COMFORT METRIC ANALYSIS (Problem 5)
+============================================================
+
+Threshold: 0.5G (5 m/s²)
+Total data points: 6654
+Number of violations: 780
+Violation percentage: 11.72%
+Maximum acceleration magnitude: 65.47 m/s²
+
+------------------------------------------------------------
+ANALYSIS:
+------------------------------------------------------------
+✗ Controller exceeded comfort threshold 780 times
+  (11.72% of total time)
+
+Contributing factors:
+  • Rapid velocity changes during curve entry/exit
+  • Sharp transitions between straight and curved sections
+  • Aggressive braking/acceleration for waypoint tracking
+
+Recommendations:
+  • Implement smoother velocity transitions
+  • Add acceleration limits in longitudinal controller
+  • Increase lookahead distance in curves
+
+------------------------------------------------------------
+Acceleration plot saved to: /home/donaldshen27/mp2_data/acceleration_plot.png
+
+============================================================
+Analysis complete. Plot saved to: /home/donaldshen27/mp2_data/acceleration_plot.png
+============================================================
+
+donaldshen27@donaldshen27-Standard-PC-Q35-ICH9-2009:/mnt/ece484$ python3 ./src/mp2/plot_trajectory.py 
+Loading trajectory data...
+
+============================================================
+TRAJECTORY ANALYSIS (Problem 7)
+============================================================
+
+Trajectory Statistics:
+  Total distance traveled: 1351.26 m
+  Waypoint path length: 1351.92 m
+  Number of waypoints: 114
+  Trajectory data points: 6654
+
+Tracking Performance:
+  Mean tracking error: 3.39 m
+  Max tracking error: 13.85 m
+
+------------------------------------------------------------
+Trajectory plot saved to: /home/donaldshen27/mp2_data/trajectory_plot.png
+
+============================================================
+Trajectory visualization complete!
+============================================================
+
