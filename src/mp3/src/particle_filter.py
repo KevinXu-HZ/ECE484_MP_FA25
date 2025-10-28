@@ -133,13 +133,30 @@ class ParticleFilter:
         # You can use an ODE function or the vehicle_dynamics function
         # provided at the top of this file.
 
+        
+        # raise NotImplementedError("implement this!!!")
+        for particle in self.particles:
+            vars = [particle.x, particle.y, particle.heading]
 
-        raise NotImplementedError("implement this!!!")
-    
+            for input in self.control:
+                v = input[0]
+                delta = input[1]
 
+                derivatives = vehicle_dynamics(0,vars,v,delta)
+
+                vars[0] += derivatives[0] * dt
+                vars[1] += derivatives[1] * dt
+                vars[2] += derivatives[2] * dt
+
+                vars[2] = (vars[2] + np.pi)%(np.pi*2)-np.pi
+
+            particle.x = vars[0]
+            particle.y = vars[1]
+            particle.heading = vars[2]
         #### END ####
 
         self.control = []
+
 
     def runFilter(self, show_frequency):
         """
