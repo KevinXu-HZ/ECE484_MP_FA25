@@ -171,6 +171,10 @@ class ParticleFilter:
         #### END ####
 
         self.particles = new_particles
+        
+        # Ensure all resampled particles are within valid bounds
+        for particle in self.particles:
+            particle.fix_invalid_particles()
 
     def particleMotionModel(self):
         dt = 0.01   # might need adjusting depending on compute performance
@@ -202,6 +206,18 @@ class ParticleFilter:
             particle.x = vars[0]
             particle.y = vars[1]
             particle.heading = vars[2]
+            
+            # Ensure particle stays within map bounds after propagation
+            particle.fix_invalid_particles()
+            
+            # If particle collides with a wall, keep it at the previous valid position
+            # or resample it randomly within the map
+            if self.world.colide_wall(int(round(particle.y)), int(round(particle.x))):
+                # Resample particle randomly within map bounds if it hits a wall
+                particle.x = np.random.uniform(0, self.world.width)
+                particle.y = np.random.uniform(0, self.world.height)
+                particle.heading = np.random.uniform(0, 2 * np.pi)
+                particle.fix_invalid_particles()
         #### END ####
 
         self.control = []
