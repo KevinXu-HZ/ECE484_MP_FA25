@@ -87,9 +87,38 @@ class ParticleFilter:
         # Make sure that the sum of all particle weights adds up to 1
         # after updating the weights.
 
-
-        raise NotImplementedError("implement this!!!")
-
+        # Gaussian kernel parameter (standard deviation)
+        # This controls how sensitive the weight is to measurement differences
+        sigma = 200.0
+        
+        # Update weight for each particle
+        for particle in self.particles:
+            # Get sensor readings for this particle
+            particle_readings = particle.read_sensor()
+            
+            # Calculate the squared difference between robot and particle readings
+            # This measures how similar the particle's position is to the robot's actual position
+            squared_diff = 0
+            for i in range(len(lidar_readings)):
+                diff = lidar_readings[i] - particle_readings[i]
+                squared_diff += diff ** 2
+            
+            # Use Gaussian kernel to compute weight
+            # Particles with similar readings get higher weights
+            particle.weight = np.exp(-squared_diff / (2 * sigma ** 2))
+        
+        # Normalize weights so they sum to 1
+        total_weight = sum([particle.weight for particle in self.particles])
+        
+        # Avoid division by zero
+        if total_weight > 0:
+            for particle in self.particles:
+                particle.weight /= total_weight
+        else:
+            # If all weights are zero, assign equal weight to all particles
+            uniform_weight = 1.0 / len(self.particles)
+            for particle in self.particles:
+                particle.weight = uniform_weight
 
         #### END ####
 

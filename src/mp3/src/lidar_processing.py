@@ -181,21 +181,45 @@ class LidarProcessing:
             # Add the 4 additional sensor directions
             # Hint: look at above code for inspiration
 
+            # Getting sensor reading for front-left (45 degrees)
+            filter_front_left = np.logical_and((x_points > 0), (y_points > 0))
+            # Filter for diagonal direction: abs(x) should be roughly equal to abs(y)
+            filter_front_left = np.logical_and(filter_front_left, np.abs(x_points - y_points) < 0.5)
+            filter_front_left = np.logical_and(filter_front_left, pixel_vals > 128)
+            indices = np.argwhere(filter_front_left).flatten()
 
-            self.x_front_left = 0
-            self.y_front_left = 0
+            self.x_front_left = np.mean(x_points[indices])
+            self.y_front_left = np.mean(y_points[indices])
 
-            self.x_front_right = 0
-            self.y_front_right = 0
+            # Getting sensor reading for front-right (-45 degrees)
+            filter_front_right = np.logical_and((x_points > 0), (y_points < 0))
+            # Filter for diagonal direction: abs(x) should be roughly equal to abs(y)
+            filter_front_right = np.logical_and(filter_front_right, np.abs(x_points + y_points) < 0.5)
+            filter_front_right = np.logical_and(filter_front_right, pixel_vals > 128)
+            indices = np.argwhere(filter_front_right).flatten()
 
-            self.x_rear_left = 0
-            self.y_rear_left = 0
+            self.x_front_right = np.mean(x_points[indices])
+            self.y_front_right = np.mean(y_points[indices])
 
-            self.x_rear_right = 0
-            self.y_rear_right = 0
+            # Getting sensor reading for rear-left (135 degrees)
+            filter_rear_left = np.logical_and((x_points < 0), (y_points > 0))
+            # Filter for diagonal direction: abs(x) should be roughly equal to abs(y)
+            filter_rear_left = np.logical_and(filter_rear_left, np.abs(x_points + y_points) < 0.5)
+            filter_rear_left = np.logical_and(filter_rear_left, pixel_vals > 128)
+            indices = np.argwhere(filter_rear_left).flatten()
 
-            raise NotImplementedError("extensive lidar not implemented yet in file: lidar_processing.py | class: LidarProcessing | func: construct_birds_eye_view")
+            self.x_rear_left = np.mean(x_points[indices])
+            self.y_rear_left = np.mean(y_points[indices])
 
+            # Getting sensor reading for rear-right (-135 degrees)
+            filter_rear_right = np.logical_and((x_points < 0), (y_points < 0))
+            # Filter for diagonal direction: abs(x) should be roughly equal to abs(y)
+            filter_rear_right = np.logical_and(filter_rear_right, np.abs(x_points - y_points) < 0.5)
+            filter_rear_right = np.logical_and(filter_rear_right, pixel_vals > 128)
+            indices = np.argwhere(filter_rear_right).flatten()
+
+            self.x_rear_right = np.mean(x_points[indices])
+            self.y_rear_right = np.mean(y_points[indices])
 
             #### END ####
         
