@@ -229,28 +229,16 @@ class ParticleFilter:
             if len(self.control) == 0:
                 continue
 
-            #### TODO ####
-            # 1. perform a particle motion step
-            # 2. update weights based on measurements
-            # 3. resample particles
-            #
-            # Hint: use class helper functions
-            
-
-
-
-
-            #### END ####
+            # Perform one full particle filter update cycle
+            self.particleMotionModel()
+            self.updateWeight(lidar_reading)
+            self.resampleParticle()
 
             if count % 2 == 0:
-                #### TODO ####
-                # Re-render world, make sure to clear previous objects first!
-
-
-
-
-
-                #### END ####
+                # Refresh visualization to reflect latest particle set
+                self.world.clear_objects()
+                self.world.show_particles(self.particles, show_frequency=show_frequency)
+                self.world.show_robot(self.bob)
 
                 estimated_location = self.world.show_estimated_location(self.particles)
                 err = math.sqrt((estimated_location[0] - self.bob.x) ** 2 + (estimated_location[1] - self.bob.y) ** 2)
