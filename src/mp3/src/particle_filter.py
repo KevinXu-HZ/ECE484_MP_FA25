@@ -144,8 +144,28 @@ class ParticleFilter:
         #       gps_y       = self.gps_reading[1]
         #       gps_heading = self.gps_reading[2]
 
-        
-        raise NotImplementedError("implement this!!!")
+        # Multinomial resampling method
+        N = self.num_particles
+        part_array = self.particles
+        cum_weights = np.zeros(N)
+        cum_sum = 0.0
+        # Step 1: Build a cumulative sum of the weights array
+        for i in range(N):
+            cum_sum += part_array[i].weight
+            cum_weights[i] = cum_sum
+        cum_weights[-1] = 1.0
+        # For each new particles
+        for _ in range(N):
+        # Step 2: Generate a random number in [0,1] and get the index in the weights array
+            rand_num = np.random.rand()
+            index = bisect.bisect_left(cum_weights, rand_num)
+        # Step 3: Append a new particle that corresponds to the index to the new particle array and set noisy = True
+            target_x = part_array[index].x
+            target_y = part_array[index].y
+            target_heading = part_array[index].heading
+            new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading, maze = self.world, weight = 1.0/N, sensor_limit = self.sensor_limit, noisy = False))
+
+        # raise NotImplementedError("implement this!!!")
 
 
         #### END ####
