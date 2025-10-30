@@ -277,22 +277,27 @@ class ParticleFilter:
             if len(self.control) == 0:
                 continue
 
-            # Perform one full particle filter update cycle
-            self.particleMotionModel()  # Propagate particles based on control inputs
-            self.updateWeight(lidar_reading)  # Update weights based on sensor measurements
-            self.resampleParticle()  # Resample particles based on weights
+            #### Filter Step ####
+            # 1. perform a particle motion step
+            # 2. update weights based on measurements
+            # 3. resample particles
+            #
+            # Hint: use class helper functions
+            self.particleMotionModel()
+            if lidar_reading is not None:
+                self.updateWeight(lidar_reading)
+                self.resampleParticle()
+            #### END ####
 
-            # Update visualization after each complete cycle
             if count % 2 == 0:
-                # Refresh visualization to reflect latest particle set
+                #### Rendering ####
+                # Re-render world, make sure to clear previous objects first!
                 self.world.clear_objects()
                 self.world.show_particles(self.particles, show_frequency=show_frequency)
                 self.world.show_robot(self.bob)
+                #### END ####
 
                 estimated_location = self.world.show_estimated_location(self.particles)
                 err = math.sqrt((estimated_location[0] - self.bob.x) ** 2 + (estimated_location[1] - self.bob.y) ** 2)
-                # Debug output to verify particles exist
-                avg_x = np.mean([p.x for p in self.particles])
-                avg_y = np.mean([p.y for p in self.particles])
-                print(f":: step {count} :: particles: {len(self.particles)}, avg_pos: ({avg_x:.1f}, {avg_y:.1f}), err {err:.3f}")
+                print(f":: step {count} :: err {err:.3f}")
             count += 1
