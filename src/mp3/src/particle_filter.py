@@ -89,7 +89,7 @@ class ParticleFilter:
 
         # Gaussian kernel parameter (standard deviation)
         # This controls how sensitive the weight is to measurement differences
-        sigma = 700.0
+        sigma = 200
         
         # Update weight for each particle
         for particle in self.particles:
@@ -102,10 +102,10 @@ class ParticleFilter:
             for i in range(len(lidar_readings)):
                 diff = lidar_readings[i] - particle_readings[i]
                 squared_diff += diff ** 2
-            
+            coef= 1/np.sqrt(2*np.pi*sigma)
             # Use Gaussian kernel to compute weight
             # Particles with similar readings get higher weights
-            particle.weight = np.exp(-squared_diff / (2 * sigma ** 2))
+            particle.weight = coef * np.exp(-squared_diff / (2 * sigma ** 2))
         
         # Normalize weights so they sum to 1
         total_weight = sum([particle.weight for particle in self.particles])
@@ -146,47 +146,67 @@ class ParticleFilter:
         #       gps_heading = self.gps_reading[2]
 
         # Multinomial resampling method
+
+
         N = self.num_particles
-        part_array = self.particles
-        cum_weights = np.zeros(N)
-        cum_sum = 0.0
-        # Step 1: Build a cumulative sum of the weights array
+        weights = np.zeros(N)
         for i in range(N):
-            cum_sum += part_array[i].weight
-            cum_weights[i] = cum_sum
-        cum_weights[-1] = 1.0
-        # For each new particles
-        for _ in range(N):
-        # Step 2: Generate a random number in [0,1] and get the index in the weights array
-            rand_num = np.random.rand()
-            index = bisect.bisect_left(cum_weights, rand_num)
-        # Step 3: Append a new particle that corresponds to the index to the new particle array and set noisy = True
-            target_x = part_array[index].x
-            target_y = part_array[index].y
-            target_heading = part_array[index].heading
-            new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading, maze = self.world, weight = 1.0/N, sensor_limit = self.sensor_limit, noisy = True))
+            weights[i] = self.particles[i].weight
 
-        # >>> NEW: replace a small portion with random particles in the map <<<
-        sprinkle_frac = 0.002                               # 5% fresh randoms each resample
-        N_sprinkle = max(1, int(N * sprinkle_frac))
-        replace_idx = np.random.choice(N, size=N_sprinkle, replace=False)
-        for idx in replace_idx:
-            rx = np.random.uniform(0, self.world.width)
-            ry = np.random.uniform(0, self.world.height)
-            rth = np.random.uniform(0, 2*np.pi)
-            new_particles[idx] = Particle(
-                x=rx, y=ry, heading=rth,
-                maze=self.world, weight=1.0/N, sensor_limit=self.sensor_limit, noisy=True)
-                
-        # raise NotImplementedError("implement this!!!")
-        # for i,p in enumerate(self.particles):
-        #     print(f"init[{i:03d}] x={p.x:.3f}, y={p.y:.3f}")
+        weight_sum = np.sum(weights)
+        weights = weights/weight_sum
 
+        weight_cum = np.cumsum(weights)
+        start = np.random.rand() * (1/N)
+        new_positions = start + (1/N) * np.arange(N)
+        indices = np.searchsorted(weight_cum, new_positions, side = 'right')
+
+        for idx in indices:
+            index = min(idx, N - 1)
+            target_particle = self.particles[index]
+            new_part = Particle(
+                x = target_particle.x,
+                y = target_particle.y,
+                heading = target_particle.heading,
+                maze = self.world,
+                weight = 1.0 / N,
+                sensor_limit = self.sensor_limit,
+                noisy = False,
+                gps_x_std = target_particle.gps_x_std,
+                gps_y_std = target_particle.gps_y_std,
+                gps_heading_std = target_particle.gps_heading_std,
+                gps_update = target_particle.gps_update
+            )
+
+
+            # Add randomness
+            new_part.x += np.random.normal(0.0, 0.25)
+            new_part.y += np.random.normal(0.0, 0.25)
+            new_part.heading = (new_part.heading + np.random.normal(0.0, np.deg2rad(3.0))) % (2 * np.pi)
+            new_part.fix_invalid_particles()
+            new_particles.append(new_part)
+
+        if self.gps_reading is not None:
+            effective_sample_size = 1.0 / np.sum((weights + 1e-16) ** 2)
+            if effective_sample_size < 0.6 * self.num_particles:
+                gps_x, gps_y, gps_heading = self.gps_reading
+                gps_x_std = getattr(self.bob, "gps_x_std", 5.0)
+                gps_y_std = getattr(self.bob, "gps_y_std", 5.0)
+                gps_heading_std = getattr(self.bob, "gps_heading_std", np.deg2rad(15.0))
+
+                num_reseed = max(1, int(0.05 * self.num_particles))
+                reseed_indices = np.random.choice(self.num_particles, size=num_reseed, replace=False)
+                for idx in reseed_indices:
+                    particle = new_particles[idx]
+                    particle.x = np.random.normal(gps_x, gps_x_std)
+                    particle.y = np.random.normal(gps_y, gps_y_std)
+                    particle.heading = (np.random.normal(gps_heading, gps_heading_std)) % (2 * np.pi)
+                    particle.fix_invalid_particles()
         #### END ####
-
-        self.particles = new_particles
         # print([(p.x, p.y) for p in self.particles])
-    
+        
+        self.particles = new_particles
+
     def particleMotionModel(self):
         dt = 0.01 # might need adjusting depending on compute performance
 
@@ -232,6 +252,7 @@ class ParticleFilter:
         #### END ####
 
         self.control = []
+
 
 
     def runFilter(self, show_frequency):
