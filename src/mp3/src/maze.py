@@ -249,19 +249,26 @@ class Maze:
                 left * 100
             ]
 
-        #### TODO ####
+        #### Additional Sensor Directions ####
         # Add the 4 additional sensor directions
         # Hint: look at above code for inspiration
 
+        def ray_cast(angle_offset):
+            pos_x = x
+            pos_y = y
+            travelled = 0
+            dx = np.cos(orientation + angle_offset)
+            dy = np.sin(orientation + angle_offset)
+            while not self.colide_wall(int(round(pos_y)), int(round(pos_x))) and travelled < sensor_limit:
+                pos_x += dx
+                pos_y += dy
+                travelled += 1
+            return travelled
 
-        front_left = 0
-        front_right = 0
-        rear_left = 0
-        rear_right = 0
-
-        raise NotImplementedError("extensive lidar not implemented yet in file: maze.py | class: Maze | func: sensor_model")
-
-
+        front_left = ray_cast(np.pi / 4)
+        front_right = ray_cast(-np.pi / 4)
+        rear_left = ray_cast(3 * np.pi / 4)
+        rear_right = ray_cast(-3 * np.pi / 4)
         #### END ####
 
         return [

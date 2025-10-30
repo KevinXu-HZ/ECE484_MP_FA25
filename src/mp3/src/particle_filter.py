@@ -79,24 +79,56 @@ class ParticleFilter:
         if lidar_readings is None:
             return
         
-        #### TODO ####
+        #### Measurement Update ####
         # Update the weight of each particle according to some function
         # (perhaps a gaussian kernel) that computes the score for each
         # particles' lidar measurement vs the lidar measurement from the robot.
         #
         # Make sure that the sum of all particle weights adds up to 1
         # after updating the weights.
+        measurement = np.array(lidar_readings, dtype=np.float64)
+        measurement = np.nan_to_num(
+            measurement,
+            nan=self.sensor_limit * 100.0,
+            posinf=self.sensor_limit * 100.0,
+            neginf=0.0
+        )
 
+        measurement_std = max(self.sensor_limit * 100.0 * 0.1, 1.0)
+        inv_two_sigma_sq = 0.5 / (measurement_std ** 2)
 
-        raise NotImplementedError("implement this!!!")
+        weights = []
+        for particle in self.particles:
+            expected = np.array(particle.read_sensor(), dtype=np.float64)
+            expected = np.nan_to_num(
+                expected,
+                nan=self.sensor_limit * 100.0,
+                posinf=self.sensor_limit * 100.0,
+                neginf=0.0
+            )
+            error = measurement - expected
+            squared_error = np.sum(error ** 2)
+            weight = math.exp(-squared_error * inv_two_sigma_sq)
+            if not np.isfinite(weight) or weight <= 0.0:
+                weight = 1e-12
+            particle.weight = weight
+            weights.append(weight)
 
-
+        weight_sum = float(np.sum(weights))
+        if weight_sum <= 0.0 or not np.isfinite(weight_sum):
+            uniform_weight = 1.0 / self.num_particles
+            for particle in self.particles:
+                particle.weight = uniform_weight
+        else:
+            inv_total = 1.0 / weight_sum
+            for particle in self.particles:
+                particle.weight *= inv_total
         #### END ####
 
     def resampleParticle(self):
         new_particles = []
 
-        #### TODO ####
+        #### Resampling Step ####
         # Resample current particles to generate a new set of particles.
         #
         # Things to consider:
@@ -115,10 +147,59 @@ class ParticleFilter:
         #       gps_y       = self.gps_reading[1]
         #       gps_heading = self.gps_reading[2]
 
-        
-        raise NotImplementedError("implement this!!!")
+        weights = np.array([particle.weight for particle in self.particles], dtype=np.float64)
+        weight_sum = float(np.sum(weights))
+        if weight_sum <= 0.0 or not np.isfinite(weight_sum):
+            weights = np.ones(self.num_particles, dtype=np.float64) / self.num_particles
+        else:
+            weights /= weight_sum
 
+        cumulative = np.cumsum(weights)
+        step = 1.0 / self.num_particles
+        start = random.random() * step
+        positions = start + step * np.arange(self.num_particles)
+        indices = np.searchsorted(cumulative, positions, side='right')
 
+        for idx in indices:
+            idx = min(idx, self.num_particles - 1)
+            source = self.particles[idx]
+            particle = Particle(
+                x=source.x,
+                y=source.y,
+                heading=source.heading,
+                maze=self.world,
+                weight=1.0,
+                sensor_limit=self.sensor_limit,
+                noisy=False,
+                gps_x_std=source.gps_x_std,
+                gps_y_std=source.gps_y_std,
+                gps_heading_std=source.gps_heading_std,
+                gps_update=source.gps_update
+            )
+
+            particle.x += np.random.normal(0.0, 0.25)
+            particle.y += np.random.normal(0.0, 0.25)
+            particle.heading = (particle.heading + np.random.normal(0.0, np.deg2rad(3.0))) % (2 * np.pi)
+            particle.fix_invalid_particles()
+            particle.weight = 1.0 / self.num_particles
+            new_particles.append(particle)
+
+        if self.gps_reading is not None:
+            effective_sample_size = 1.0 / np.sum((weights + 1e-16) ** 2)
+            if effective_sample_size < 0.6 * self.num_particles:
+                gps_x, gps_y, gps_heading = self.gps_reading
+                gps_x_std = getattr(self.bob, "gps_x_std", 5.0)
+                gps_y_std = getattr(self.bob, "gps_y_std", 5.0)
+                gps_heading_std = getattr(self.bob, "gps_heading_std", np.deg2rad(15.0))
+
+                num_reseed = max(1, int(0.05 * self.num_particles))
+                reseed_indices = np.random.choice(self.num_particles, size=num_reseed, replace=False)
+                for idx in reseed_indices:
+                    particle = new_particles[idx]
+                    particle.x = np.random.normal(gps_x, gps_x_std)
+                    particle.y = np.random.normal(gps_y, gps_y_std)
+                    particle.heading = (np.random.normal(gps_heading, gps_heading_std)) % (2 * np.pi)
+                    particle.fix_invalid_particles()
         #### END ####
 
         self.particles = new_particles
@@ -126,16 +207,40 @@ class ParticleFilter:
     def particleMotionModel(self):
         dt = 0.01   # might need adjusting depending on compute performance
 
-        #### TODO ####
+        #### Motion Model ####
         # Estimate next state for each particle according to the control
         # input from the actual robot.
         # 
         # You can use an ODE function or the vehicle_dynamics function
         # provided at the top of this file.
 
+        if len(self.control) == 0:
+            return
 
-        raise NotImplementedError("implement this!!!")
-    
+        speed_noise = 0.2
+        steer_noise = np.deg2rad(1.0)
+        drift_noise = 0.05
+        heading_drift_noise = np.deg2rad(0.5)
+
+        for particle in self.particles:
+            x, y, heading = particle.x, particle.y, particle.heading
+            for vr, delta in self.control:
+                noisy_vr = vr + np.random.normal(0.0, speed_noise + 0.05 * abs(vr))
+                noisy_delta = delta + np.random.normal(0.0, steer_noise + 0.05 * abs(delta))
+
+                heading = (heading + noisy_delta * dt) % (2 * np.pi)
+                distance = noisy_vr * dt
+                x += distance * np.cos(heading)
+                y += distance * np.sin(heading)
+
+            x += np.random.normal(0.0, drift_noise)
+            y += np.random.normal(0.0, drift_noise)
+            heading = (heading + np.random.normal(0.0, heading_drift_noise)) % (2 * np.pi)
+
+            particle.x = x
+            particle.y = y
+            particle.heading = heading
+            particle.fix_invalid_particles()
 
         #### END ####
 
@@ -163,27 +268,24 @@ class ParticleFilter:
             if len(self.control) == 0:
                 continue
 
-            #### TODO ####
+            #### Filter Step ####
             # 1. perform a particle motion step
             # 2. update weights based on measurements
             # 3. resample particles
             #
             # Hint: use class helper functions
-            
-
-
-
-
+            self.particleMotionModel()
+            if lidar_reading is not None:
+                self.updateWeight(lidar_reading)
+                self.resampleParticle()
             #### END ####
 
             if count % 2 == 0:
-                #### TODO ####
+                #### Rendering ####
                 # Re-render world, make sure to clear previous objects first!
-
-
-
-
-
+                self.world.clear_objects()
+                self.world.show_particles(self.particles, show_frequency=show_frequency)
+                self.world.show_robot(self.bob)
                 #### END ####
 
                 estimated_location = self.world.show_estimated_location(self.particles)

@@ -177,26 +177,34 @@ class LidarProcessing:
         self.y_front = np.mean(y_points[indices])
         
         if self.extensive:
-            #### TODO ####
+            #### Additional Sensor Directions ####
             # Add the 4 additional sensor directions
             # Hint: look at above code for inspiration
 
+            valid_mask = pixel_vals > 128
+            distances = np.sqrt(x_points ** 2 + y_points ** 2)
+            angles = np.arctan2(y_points, x_points)
+            angle_window = np.pi / 8  # +/- 22.5 degrees around nominal direction
 
-            self.x_front_left = 0
-            self.y_front_left = 0
+            def select_direction(center_angle, quadrant_mask):
+                mask = valid_mask & quadrant_mask
+                angle_delta = np.arctan2(np.sin(angles - center_angle), np.cos(angles - center_angle))
+                mask &= np.abs(angle_delta) <= angle_window
+                if not np.any(mask):
+                    return float('nan'), float('nan')
+                candidate_indices = np.flatnonzero(mask)
+                closest_idx = candidate_indices[np.argmin(distances[candidate_indices])]
+                return x_points[closest_idx], y_points[closest_idx]
 
-            self.x_front_right = 0
-            self.y_front_right = 0
+            front_left_mask = (x_points > 0) & (y_points > 0)
+            front_right_mask = (x_points > 0) & (y_points < 0)
+            rear_left_mask = (x_points < 0) & (y_points > 0)
+            rear_right_mask = (x_points < 0) & (y_points < 0)
 
-            self.x_rear_left = 0
-            self.y_rear_left = 0
-
-            self.x_rear_right = 0
-            self.y_rear_right = 0
-
-            raise NotImplementedError("extensive lidar not implemented yet in file: lidar_processing.py | class: LidarProcessing | func: construct_birds_eye_view")
-
-
+            self.x_front_left, self.y_front_left = select_direction(np.pi / 4, front_left_mask)
+            self.x_front_right, self.y_front_right = select_direction(-np.pi / 4, front_right_mask)
+            self.x_rear_left, self.y_rear_left = select_direction(3 * np.pi / 4, rear_left_mask)
+            self.x_rear_right, self.y_rear_right = select_direction(-3 * np.pi / 4, rear_right_mask)
             #### END ####
         
         # convert points to image coords with resolution
@@ -321,4 +329,3 @@ class LidarProcessing:
                 rear * 100,
                 left * 100
             ]
-        
