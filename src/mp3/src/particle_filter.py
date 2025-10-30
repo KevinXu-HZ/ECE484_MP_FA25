@@ -163,7 +163,8 @@ class ParticleFilter:
             target_x = part_array[index].x
             target_y = part_array[index].y
             target_heading = part_array[index].heading
-            new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading, maze = self.world, weight = 1.0/N, sensor_limit = self.sensor_limit, noisy = False))
+            # Set noisy=True to add small random variation to prevent all particles from being identical
+            new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading, maze = self.world, weight = 1.0/N, sensor_limit = self.sensor_limit, noisy = True))
 
         # raise NotImplementedError("implement this!!!")
 
@@ -246,10 +247,11 @@ class ParticleFilter:
                 continue
 
             # Perform one full particle filter update cycle
-            self.particleMotionModel()
-            self.updateWeight(lidar_reading)
-            self.resampleParticle()
+            self.particleMotionModel()  # Propagate particles based on control inputs
+            self.updateWeight(lidar_reading)  # Update weights based on sensor measurements
+            self.resampleParticle()  # Resample particles based on weights
 
+            # Update visualization after each complete cycle
             if count % 2 == 0:
                 # Refresh visualization to reflect latest particle set
                 self.world.clear_objects()
@@ -258,5 +260,8 @@ class ParticleFilter:
 
                 estimated_location = self.world.show_estimated_location(self.particles)
                 err = math.sqrt((estimated_location[0] - self.bob.x) ** 2 + (estimated_location[1] - self.bob.y) ** 2)
-                print(f":: step {count} :: err {err:.3f}")
+                # Debug output to verify particles exist
+                avg_x = np.mean([p.x for p in self.particles])
+                avg_y = np.mean([p.y for p in self.particles])
+                print(f":: step {count} :: particles: {len(self.particles)}, avg_pos: ({avg_x:.1f}, {avg_y:.1f}), err {err:.3f}")
             count += 1
