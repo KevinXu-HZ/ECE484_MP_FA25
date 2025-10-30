@@ -89,17 +89,33 @@ class ParticleFilter:
 
         # Convert readings to meters for a more interpretable noise scale
         lidar_arr = np.array(lidar_readings, dtype=np.float64) / 100.0
-        sigma_m = 0.6
+        sigma_m = 1.5  # Increased to be more tolerant of measurement differences
         sigma_sq = sigma_m ** 2
 
         # Update weight for each particle
         for particle in self.particles:
-            particle_readings = np.array(particle.read_sensor(), dtype=np.float64) / 100.0
-            diff = lidar_arr - particle_readings
-            squared_diff = np.dot(diff, diff)
+            # Check if particle is outside map bounds or inside a wall/obstacle
+            out_of_bounds = (particle.x < 0 or particle.x >= self.world.width or
+                           particle.y < 0 or particle.y >= self.world.height)
 
-            # Use Gaussian kernel to compute weight
-            particle.weight = math.exp(-0.5 * squared_diff / sigma_sq)
+            if out_of_bounds:
+                # Particle is outside the map
+                particle.weight = 1e-100
+            else:
+                # Particle is within bounds, check if it's inside a wall
+                ix = int(particle.x)
+                iy = int(particle.y)
+                if self.world.colide_wall(iy, ix):
+                    # Particle is inside a wall
+                    particle.weight = 1e-100
+                else:
+                    # Normal weight update based on sensor measurement
+                    particle_readings = np.array(particle.read_sensor(), dtype=np.float64) / 100.0
+                    diff = lidar_arr - particle_readings
+                    squared_diff = np.dot(diff, diff)
+
+                    # Use Gaussian kernel to compute weight
+                    particle.weight = math.exp(-0.5 * squared_diff / sigma_sq)
 
         # Normalize weights so they sum to 1
         total_weight = sum(p.weight for p in self.particles)
@@ -168,9 +184,9 @@ class ParticleFilter:
         # print([(p.x, p.y) for p in self.particles])
     
     def particleMotionModel(self):
-        dt = 0.033   # match vehicle controller update period (about 30 Hz)
-        trans_noise_std = 0.05
-        rot_noise_std = np.deg2rad(5)
+        dt = 0.01   # control inputs arrive at 0.01s timestep (100 Hz)
+        trans_noise_std = 0.3  # Increased for better particle diversity
+        rot_noise_std = np.deg2rad(15)  # Increased for better exploration
 
         #### TODO ####
         # Estimate next state for each particle according to the control
@@ -203,14 +219,8 @@ class ParticleFilter:
             # Ensure particle stays within map bounds after propagation
             particle.fix_invalid_particles()
 
-            # If particle collides with a wall, keep it at the previous valid position
-            # or resample it randomly within the map
-            if self.world.colide_wall(int(round(particle.y)), int(round(particle.x))):
-                # Resample particle randomly within map bounds if it hits a wall
-                particle.x = np.random.uniform(0, self.world.width)
-                particle.y = np.random.uniform(0, self.world.height)
-                particle.heading = np.random.uniform(0, 2 * np.pi)
-                particle.fix_invalid_particles()
+            # If particle collides with a wall, it will get low weight and die out naturally
+            # Don't randomly resample as that destroys the particle filter's convergence
         #### END ####
 
         self.control = []
