@@ -122,6 +122,53 @@ class ParticleFilter:
 
         #### END ####
 
+    def updateWeight(self, lidar_readings):
+        if lidar_readings is None:
+            return
+        
+        #### TODO ####
+        # Update the weight of each particle according to some function
+        # (perhaps a gaussian kernel) that computes the score for each
+        # particles' lidar measurement vs the lidar measurement from the robot.
+        #
+        # Make sure that the sum of all particle weights adds up to 1
+        # after updating the weights.
+
+        # Gaussian kernel parameter (standard deviation)
+        # This controls how sensitive the weight is to measurement differences
+        sigma = 200.0
+        
+        # Update weight for each particle
+        for particle in self.particles:
+            # Get sensor readings for this particle
+            particle_readings = particle.read_sensor()
+            
+            # Calculate the squared difference between robot and particle readings
+            # This measures how similar the particle's position is to the robot's actual position
+            squared_diff = 0
+            for i in range(len(lidar_readings)):
+                diff = lidar_readings[i] - particle_readings[i]
+                squared_diff += diff ** 2
+            
+            # Use Gaussian kernel to compute weight
+            # Particles with similar readings get higher weights
+            particle.weight = np.exp(-squared_diff / (2 * sigma ** 2))
+        
+        # Normalize weights so they sum to 1
+        total_weight = sum([particle.weight for particle in self.particles])
+        
+        # Avoid division by zero
+        if total_weight > 0:
+            for particle in self.particles:
+                particle.weight /= total_weight
+        else:
+            # If all weights are zero, assign equal weight to all particles
+            uniform_weight = 1.0 / len(self.particles)
+            for particle in self.particles:
+                particle.weight = uniform_weight
+
+        #### END ####
+
     def resampleParticle(self):
         new_particles = []
 
@@ -163,20 +210,29 @@ class ParticleFilter:
             target_x = part_array[index].x
             target_y = part_array[index].y
             target_heading = part_array[index].heading
-            # Set noisy=True to add small random variation to prevent all particles from being identical
             new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading, maze = self.world, weight = 1.0/N, sensor_limit = self.sensor_limit, noisy = True))
 
+        # >>> NEW: replace a small portion with random particles in the map <<<
+        sprinkle_frac = 0.05                               # 5% fresh randoms each resample
+        N_sprinkle = max(1, int(N * sprinkle_frac))
+        replace_idx = np.random.choice(N, size=N_sprinkle, replace=False)
+        for idx in replace_idx:
+            rx = np.random.uniform(0, self.world.width)
+            ry = np.random.uniform(0, self.world.height)
+            rth = np.random.uniform(0, 2*np.pi)
+            new_particles[idx] = Particle(
+                x=rx, y=ry, heading=rth,
+                maze=self.world, weight=1.0/N, sensor_limit=self.sensor_limit, noisy=True)
+                
         # raise NotImplementedError("implement this!!!")
-
+        # for i,p in enumerate(self.particles):
+        #     print(f"init[{i:03d}] x={p.x:.3f}, y={p.y:.3f}")
 
         #### END ####
 
         self.particles = new_particles
-        
-        # Ensure all resampled particles are within valid bounds
-        for particle in self.particles:
-            particle.fix_invalid_particles()
-
+        # print([(p.x, p.y) for p in self.particles])
+    
     def particleMotionModel(self):
         dt = 0.01   # might need adjusting depending on compute performance
 
