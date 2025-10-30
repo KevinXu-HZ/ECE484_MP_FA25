@@ -89,7 +89,7 @@ class ParticleFilter:
 
         # Convert readings to meters for a more interpretable noise scale
         lidar_arr = np.array(lidar_readings, dtype=np.float64) / 100.0
-        sigma_m = 1.5  # Increased to be more tolerant of measurement differences
+        sigma_m = 1.0  # Balanced for good weight discrimination
         sigma_sq = sigma_m ** 2
 
         # Update weight for each particle
@@ -153,26 +153,57 @@ class ParticleFilter:
         #       gps_y       = self.gps_reading[1]
         #       gps_heading = self.gps_reading[2]
 
-        # Multinomial resampling method
+        # Low-variance resampling method with random particle injection
+        # More stable than multinomial, reduces particle depletion
         N = self.num_particles
         part_array = self.particles
+
+        # Calculate how many particles to sample vs inject randomly
+        # Inject 5% random particles to prevent particle depletion
+        num_random = max(int(N * 0.05), 1)
+        num_resampled = N - num_random
+
+        # Step 1: Build cumulative sum of weights
         cum_weights = np.zeros(N)
         cum_sum = 0.0
-        # Step 1: Build a cumulative sum of the weights array
         for i in range(N):
             cum_sum += part_array[i].weight
             cum_weights[i] = cum_sum
-        cum_weights[-1] = 1.0
-        # For each new particles
-        for _ in range(N):
-        # Step 2: Generate a random number in [0,1] and get the index in the weights array
-            rand_num = np.random.rand()
-            index = bisect.bisect_left(cum_weights, rand_num)
-        # Step 3: Append a new particle that corresponds to the index to the new particle array and set noisy = True
-            target_x = part_array[index].x
-            target_y = part_array[index].y
-            target_heading = part_array[index].heading
-            new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading, maze = self.world, weight = 1.0/N, sensor_limit = self.sensor_limit, noisy = True))
+
+        # Normalize to ensure it sums to exactly 1
+        if cum_sum > 0:
+            cum_weights = cum_weights / cum_sum
+        else:
+            cum_weights = np.linspace(0, 1, N)
+
+        # Step 2: Low-variance resampling
+        # Start at a random position and step through deterministically
+        r = np.random.uniform(0, 1.0 / num_resampled)
+        c = cum_weights[0]
+        i = 0
+
+        for m in range(num_resampled):
+            u = r + m / num_resampled
+            while u > c and i < N - 1:
+                i += 1
+                c = cum_weights[i]
+
+            # Sample particle i with noise
+            target_x = part_array[i].x
+            target_y = part_array[i].y
+            target_heading = part_array[i].heading
+            new_particles.append(Particle(x = target_x, y = target_y, heading = target_heading,
+                                        maze = self.world, weight = 1.0/N,
+                                        sensor_limit = self.sensor_limit, noisy = True))
+
+        # Step 3: Add random particles for diversity (prevents particle depletion)
+        for _ in range(num_random):
+            random_x = np.random.uniform(0, self.world.width)
+            random_y = np.random.uniform(0, self.world.height)
+            random_heading = np.random.uniform(0, 2 * np.pi)
+            new_particles.append(Particle(x = random_x, y = random_y, heading = random_heading,
+                                        maze = self.world, weight = 1.0/N,
+                                        sensor_limit = self.sensor_limit, noisy = False))
 
         # raise NotImplementedError("implement this!!!")
         # for i,p in enumerate(self.particles):
@@ -185,8 +216,8 @@ class ParticleFilter:
     
     def particleMotionModel(self):
         dt = 0.01   # control inputs arrive at 0.01s timestep (100 Hz)
-        trans_noise_std = 0.3  # Increased for better particle diversity
-        rot_noise_std = np.deg2rad(15)  # Increased for better exploration
+        trans_noise_std = 0.15  # Balanced for tracking without too much drift
+        rot_noise_std = np.deg2rad(8)  # Reduced to prevent divergence
 
         #### TODO ####
         # Estimate next state for each particle according to the control
